@@ -21,8 +21,8 @@ RUN apt-get update \
         genimage joe lzip mc unzip zip \
         fakeroot git kernel-wedge quilt ccache cmake flex bison \
         libssl-dev dh-exec rsync libelf-dev bc gcc-riscv64-unknown-elf \
-    && mkdir -p /host-tools/gcc \
-    && wget -O - https://github.com/scpcom/riscv-gnu-toolchain/releases/download/riscv64-gcc-thead_20241206-10.4.0-x86_64/riscv64-linux-gcc-thead_20241206-10.4.0-x86_64.tar.gz | tar -C /host-tools/gcc -xz
+        cpp-riscv64-linux-gnu binutils-riscv64-linux-gnu gcc-riscv64-linux-gnu \
+        g++-riscv64-linux-gnu libc6-dev-riscv64-cross linux-libc-dev-riscv64-cross
 
 
 

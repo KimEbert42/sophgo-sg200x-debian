@@ -23,12 +23,12 @@ endif
 
 CROSS_COMPILE_64 = aarch64-linux-gnu-
 CROSS_COMPILE_32 = arm-linux-gnueabihf-
-CROSS_COMPILE_GLIBC_RISCV64 = riscv64-unknown-linux-gnu-
+CROSS_COMPILE_GLIBC_RISCV64 = riscv64-linux-gnu-
 CROSS_COMPILE_MUSL_RISCV64 = riscv64-unknown-linux-musl-
 
-CROSS_COMPILE_PATH_64 = /host-tools/gcc/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu
-CROSS_COMPILE_PATH_32 = /host-tools/gcc/gcc-linaro-6.3.1-2017.05-x86_64_arm-linux-gnueabihf
-CROSS_COMPILE_PATH_GLIBC_RISCV64 = /host-tools/gcc/riscv64-linux-x86_64
+CROSS_COMPILE_PATH_64 = /usr
+CROSS_COMPILE_PATH_32 = /usr
+CROSS_COMPILE_PATH_GLIBC_RISCV64 = /usr
 CROSS_COMPILE_PATH_MUSL_RISCV64 = /host-tools/gcc/riscv64-linux-musl-x86_64
 
 ifeq ($(SDK_VER),glibc_riscv64)
@@ -186,11 +186,12 @@ $(BUILDDIR)/$(BOARD)-$(VARIANT)/cvi_board_memmap.h: $(BUILDDIR)/$(BOARD)-$(VARIA
 
 $(BUILDDIR)/toolchain-prepare-patch-stamp:
 	@echo "$(COLOUR_GREEN)Patching Toolchain for $(BOARD)$(END_COLOUR)"
-	@if [ "$(UBOOT_ARCH)" = "arm" ]; then \
-		cd / && /builder/replace-all-linaro-toolchains.sh ; \
-		mv /ramdisk $(BUILDDIR)/ ; \
-	fi
-	@cd / && /builder/fix-thead-glibc-toolchain.sh
+	@[ "$(DEB_ARCH)" != "arm64" -a "$(DEB_ARCH)" != "armhf" ] || apt-get install -y \
+		cpp-aarch64-linux-gnu binutils-aarch64-linux-gnu gcc-aarch64-linux-gnu \
+		g++-aarch64-linux-gnu libc6-dev-arm64-cross linux-libc-dev-arm64-cross
+	@[ "$(DEB_ARCH)" != "armhf" ] || apt-get install -y \
+		cpp-arm-linux-gnueabihf binutils-arm-linux-gnueabihf gcc-arm-linux-gnueabihf \
+		g++-arm-linux-gnueabihf libc6-dev-armhf-cross linux-libc-dev-armhf-cross
 	@touch $@
 
 $(BUILDDIR)/linux-prepare-checkout-stamp:
@@ -339,6 +340,9 @@ $(BUILDDIR)/middleware-prepare-patch-stamp: $(BUILDDIR)/toolchain-prepare-patch-
 	@$(foreach file, $(wildcard /configs/common/patches/middleware/*.patch), cd $(BUILDDIR)/middleware && git apply --ignore-whitespace $(file);)
 	@$(foreach file, $(wildcard /configs/$(BOARD_CFG)/patches/middleware/*.patch), cd $(BUILDDIR)/middleware && git apply --ignore-whitespace $(file);)
 	sed -i 's|$$(ROOT_DIR)/../host-tools|/host-tools|g' $(BUILDDIR)/middleware/Makefile.param
+	sed -i 's|$$(ROOT_DIR)/../ramdisk/sysroot/sysroot-glibc-linaro-2.23-2017.05-aarch64-linux-gnu|/rootfs|g' $(BUILDDIR)/middleware/Makefile.param
+	sed -i 's|$$(ROOT_DIR)/../ramdisk/sysroot/sysroot-glibc-linaro-2.23-2017.05-arm-linux-gnueabihf|/rootfs|g' $(BUILDDIR)/middleware/Makefile.param
+	sed -i 's|/host-tools/gcc/riscv64-linux-x86_64/sysroot|/rootfs|g' $(BUILDDIR)/middleware/Makefile.param
 	sed -i 's|^include $$(BUILD_PATH)/.config|-include $$(BUILD_PATH)/.config|g' $(BUILDDIR)/middleware/Makefile.param
 	sed -i 's|^include $$(BUILD_PATH)/.config|-include $$(BUILD_PATH)/.config|g' $(BUILDDIR)/middleware/component/isp/Makefile
 	sed -i 's|^include $$(BUILD_PATH)/.config|-include $$(BUILD_PATH)/.config|g' $(BUILDDIR)/middleware/component/isp/common/Makefile
