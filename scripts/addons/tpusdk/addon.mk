@@ -37,6 +37,21 @@ endif
 
 TPUSDK_BOARD_LINK ?= $(TPUSDK_CHIP)_$(TPUSDK_CONFIG)_$(STORAGE_TYPE)
 
+TPUSDK_MAKE_FILES = build-sdk.sh \
+ive/toolchain/toolchain-riscv64-linux.cmake \
+ive/toolchain/toolchain-riscv64-musl.cmake \
+cviruntime/scripts/toolchain.cmake \
+cviruntime/scripts/toolchain-riscv64-linux-musl-x86_64_legacy.cmake \
+cviruntime/scripts/toolchain-riscv64-linux-musl-x86_64.cmake \
+cviruntime/scripts/toolchain-riscv64-linux-x86_64.cmake \
+oss/run_build.sh \
+cvi_rtsp/Makefile.inc \
+tdl_sdk/lib/sample/Makefile \
+tdl_sdk/sample/Makefile \
+tdl_sdk/toolchain/toolchain-riscv64-linux.cmake \
+tdl_sdk/toolchain/toolchain-riscv64-musl.cmake \
+tdl_sdk/modules/app/Makefile
+
 $(BUILDDIR)/tpusdk-prepare-checkout-stamp:
 	@echo "$(COLOUR_GREEN)Checking out TPU SDK for $(BOARD)$(END_COLOUR)"
 	@mkdir -p $(BUILDDIR)
@@ -70,6 +85,22 @@ $(BUILDDIR)/tpusdk-prepare-patch-stamp: $(BUILDDIR)/toolchain-prepare-patch-stam
 	$(foreach file, $(wildcard /configs/$(BOARD_CFG)/patches/tpusdk/cviruntime-*.patch), cd $(BUILDDIR)/tpusdk/cviruntime && git apply --ignore-whitespace $(file);)
 	$(foreach file, $(wildcard /configs/common/patches/tpusdk/tdl_sdk-*.patch), cd $(BUILDDIR)/tpusdk/tdl_sdk && git apply --ignore-whitespace $(file);)
 	$(foreach file, $(wildcard /configs/$(BOARD_CFG)/patches/tpusdk/tdl_sdk-*.patch), cd $(BUILDDIR)/tpusdk/tdl_sdk && git apply --ignore-whitespace $(file);)
+	@cd $(BUILDDIR)/tpusdk && for f in $(TPUSDK_MAKE_FILES) ; do \
+		sed -i s/'-mcpu=c906fdv'/'-mcpu=thead-c906'/g $$f ; \
+		sed -i s/'-march=rv64imafdcv0p7xthead'/'-march=rv64imafdc_xtheadba_xtheadbb_xtheadbs_xtheadcmo'/g $$f ; \
+		sed -i s/'riscv64-unknown-linux-gnu-'/'riscv64-linux-gnu-'/g $$f ; \
+	done
+	@cd $(BUILDDIR)/tpusdk && sed -i 's|"$$TOOLCHAIN_PATH"/gcc/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu|/usr|g' build/envsetup_soc.sh
+	@cd $(BUILDDIR)/tpusdk && sed -i 's|"$$TOOLCHAIN_PATH"/gcc/gcc-linaro-6.3.1-2017.05-x86_64_arm-linux-gnueabihf|/usr|g' build/envsetup_soc.sh
+	@cd $(BUILDDIR)/tpusdk && sed -i 's|"$$TOOLCHAIN_PATH"/gcc/riscv64-linux-x86_64|/usr|g' build/envsetup_soc.sh
+	@cd $(BUILDDIR)/tpusdk && sed -i 's|"$$RAMDISK_PATH"/sysroot/sysroot-glibc-linaro-2.23-2017.05-aarch64-linux-gnu|/rootfs|g' build/envsetup_soc.sh
+	@cd $(BUILDDIR)/tpusdk && sed -i 's|"$$RAMDISK_PATH"/sysroot/sysroot-glibc-linaro-2.23-2017.05-arm-linux-gnueabihf|/rootfs|g' build/envsetup_soc.sh
+	@cd $(BUILDDIR)/tpusdk && sed -i 's|"$$RAMDISK_PATH"/sysroot/sysroot-glibc-riscv64|/rootfs|g' build/envsetup_soc.sh
+	@cd $(BUILDDIR)/tpusdk && sed -i s/'riscv64-unknown-linux-gnu-'/'riscv64-linux-gnu-'/g build/envsetup_soc.sh
+	@cd $(BUILDDIR)/tpusdk && sed -i s/'riscv64-unknown-linux-gnu-'/'riscv64-linux-gnu-'/g build/Kconfig
+	@cd $(BUILDDIR)/tpusdk && sed -i 's|$$ENV{TOP_DIR}/ramdisk/sysroot/sysroot-glibc-linaro-2.23-2017.05-arm-linux-gnueabihf|/rootfs|g' cviruntime/scripts/toolchain.cmake
+	@cd $(BUILDDIR)/tpusdk && sed -i 's|$$ENV{TOP_DIR}/ramdisk/sysroot/sysroot-glibc-linaro-2.23-2017.05-aarch64-linux-gnu|/rootfs|g' cviruntime/scripts/toolchain.cmake
+	@cd $(BUILDDIR)/tpusdk && sed -i 's|$$ENV{TOP_DIR}/host-tools/gcc/riscv64-linux-x86_64/sysroot|/rootfs|g' cviruntime/scripts/toolchain.cmake
 	@touch $@
 
 $(BUILDDIR)/tpusdk-prepare-configure-stamp: $(BUILDDIR)/tpusdk-prepare-patch-stamp
