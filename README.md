@@ -118,6 +118,8 @@ Available debian packages:
  Libs and samples for the ISP (vi/vo/venc/vdec etc.).
  - cvitek-osdrv-licheervnano-kvm  
  Additional kernel drivers (required for camera support etc.).
+ - cvitek-tpusdk-licheervnano
+ Libs and samples for the TPU (AI)
  - device-key-licheervnano  
  Startup script that sets the Ethernet MAC address and hostname based on the hash off the device uuid.
  - duo-pinmux-duos  
@@ -194,7 +196,17 @@ docker run --privileged -it --rm -v ./configs/:/configs -v ./image:/output -v ./
 ```
 inside the container, packages are build in the /builder/ directory, and the rootfs is placed at /rootfs/ directory
 
+## ARM Images
+If the A53 CPU core is enabled on your board you can build the matching arm64 images.
+
+Use podman/docker run like described above and choose one of the supported boards:
+```
+make BOARD=duos ARCH=arm64 image
+make BOARD=duo256 ARCH=arm64 image
+make BOARD=licheea53nano ARCH=arm64 image
+```
+You can replace ARCH=arm64 with ARCH=arm to get 32 bit (armhf) images.
+
 # TODO
 - DeviceTree Overlay Support
-- Add support for the TPU drivers
 - Possibly mainline kernel support via the sophgo linux for-next repositories
