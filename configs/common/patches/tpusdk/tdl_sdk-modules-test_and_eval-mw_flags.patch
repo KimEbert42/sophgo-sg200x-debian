@@ -1,0 +1,14 @@
+diff --git a/modules/test_and_eval/CMakeLists.txt b/modules/test_and_eval/CMakeLists.txt
+index d610f21..894f4ed 100644
+--- a/modules/test_and_eval/CMakeLists.txt
++++ b/modules/test_and_eval/CMakeLists.txt
+@@ -106,6 +101,9 @@ if (NOT "${CVI_PLATFORM}" STREQUAL "CV183X")
+ endif()
+ endif()
+ 
++set(MW_FLAGS "-L${MIDDLEWARE_SDK_ROOT}/lib -L${MIDDLEWARE_SDK_ROOT}/lib/3rd  -lsample -lsys -lvpss -lcvi_bin -lvi -lvo -lgdc -lrgn -lsns_full -lisp -lvenc -lvdec -lawb -lae -laf -lcvi_bin_isp -lini -lmisc -lisp_algo  ")
++set(CMAKE_CXX_STANDARD_LIBRARIES ${MW_FLAGS} ${CMAKE_CXX_STANDARD_LIBRARIES})
++
+ if (NOT DEFINED NO_OPENCV)
+     buildninstallcpp(NAME eval_pose_dataset INC ${REG_INCLUDES} DEPS cvi_tdl atomic ${SAMPLE_LIBS} SRCS ${CMAKE_CURRENT_SOURCE_DIR}/utils/sys_utils.cpp)
+     buildninstallcpp(NAME test_img_fall_monitor INC ${REG_INCLUDES} DEPS cvi_tdl atomic ${SAMPLE_LIBS})
