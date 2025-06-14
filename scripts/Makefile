@@ -67,12 +67,17 @@ else
 $(error $(red)DEB_ARCH is invalid$(reset))
 endif
 
-ifeq ($(KERNEL_ARCH)-$(SDK_VER),arm64-32bit)
+ifeq ($(UBOOT_ARCH),arm)
 SBL_CROSS_COMPILE_PATH = $(CROSS_COMPILE_PATH_64)
 SBL_CROSS_COMPILE_PREFIX = $(CROSS_COMPILE_64)
 else
 SBL_CROSS_COMPILE_PATH = $(SDK_CROSS_COMPILE_PATH)
 SBL_CROSS_COMPILE_PREFIX = $(SDK_CROSS_COMPILE_PREFIX)
+endif
+ifeq ($(KERNEL_ARCH),arm64)
+SDK_CROSS_COMPILE_KERNEL="$(SBL_CROSS_COMPILE_PATH)/bin/$(SBL_CROSS_COMPILE_PREFIX)"
+else
+SDK_CROSS_COMPILE_KERNEL="$(SDK_CROSS_COMPILE_PATH)/bin/$(SDK_CROSS_COMPILE_PREFIX)"
 endif
 
 SDK_CHIP = $(shell echo '$(CHIP)' | tr '[:lower:]' '[:upper:]')
@@ -89,7 +94,7 @@ CVIBOARD=$(UBOOT_BOARD) \
 CROSS_COMPILE="$(SBL_CROSS_COMPILE_PATH)/bin/$(SBL_CROSS_COMPILE_PREFIX)"
 
 KERNEL_MAKE_OPTS = ARCH=$(KERNEL_ARCH) \
-CROSS_COMPILE="$(SBL_CROSS_COMPILE_PATH)/bin/$(SBL_CROSS_COMPILE_PREFIX)" \
+CROSS_COMPILE="$(SDK_CROSS_COMPILE_KERNEL)" \
 KDEB_SOURCENAME=linux-$(BOARD) \
 LOCALVERSION=+$(BOARD_EXT)
 
@@ -102,7 +107,7 @@ CROSS_COMPILE_32=$(CROSS_COMPILE_PATH_32)/bin/$(CROSS_COMPILE_32) \
 CROSS_COMPILE_GLIBC_RISCV64=$(CROSS_COMPILE_PATH_GLIBC_RISCV64)/bin/$(CROSS_COMPILE_GLIBC_RISCV64) \
 CROSS_COMPILE_MUSL_RISCV64=$(CROSS_COMPILE_PATH_MUSL_RISCV64)/bin/$(CROSS_COMPILE_MUSL_RISCV64) \
 CONFIG_ARCH=$(KERNEL_ARCH) \
-CONFIG_CROSS_COMPILE_KERNEL="$(SBL_CROSS_COMPILE_PATH)/bin/$(SBL_CROSS_COMPILE_PREFIX)" \
+CONFIG_CROSS_COMPILE_KERNEL="$(SDK_CROSS_COMPILE_KERNEL)" \
 CONFIG_CP_EXT_WIRELESS=y
 
 SENSOR_ENV = CONFIG_SENSOR_GCORE_GC2083=y \
@@ -112,8 +117,6 @@ CONFIG_SENSOR_OV_OV2685=y \
 CONFIG_SENSOR_OV_OV5647=y \
 CONFIG_SENSOR_SMS_SC035GS=y \
 CONFIG_SENSOR_LONTIUM_LT6911=y
-
-MIDDLEWARE_ENV = $(OSDRV_ENV) $(SENSOR_ENV)
 
 BR_BOARD = cvitek_$(SDK_CHIP)_$(SDK_VER)
 BR_DEFCONFIG = $(BR_BOARD)_defconfig
@@ -157,11 +160,32 @@ endif
 
 BOARD_EXT ?= $(BOARD)
 
-BSPDEPENDS = cvitek-fsbl-$(BOARD_EXT)\
- cvitek-middleware-$(BOARD)\
+FSBL_MAKE_OPTS = $(UBOOT_MAKE_OPTS) \
+CHIP_ARCH=$(CHIP) \
+BOOT_CPU=$(BOOT_CPU) \
+DDR_CFG=$(DDR_CFG) \
+RTOS_ENABLE_FREERTOS=y \
+BLCP_2ND_PATH=$(BUILDDIR)/fsbl/blank.bin \
+LOADER_2ND_PATH=$(BUILDDIR)/u-boot.bin
+
+FSBL_TARGETS = $(BUILDDIR)/fsbl-package-stamp
+
+ifneq ("$(PANEL_TUNING_DEFAULT)","")
+PANEL_CONFIG_DEFAULT = $(shell echo '$(PANEL_TUNING_DEFAULT)' | tr '[:lower:]' '[:upper:]')
+FSBL_TARGETS += $(BUILDDIR)/fsbl-$(PANEL_TUNING_DEFAULT).package-stamp
+OSDRV_ENV += CONFIG_$(PANEL_CONFIG_DEFAULT)=y CONFIG_PANEL_TUNING_PARAM="$(PANEL_TUNING_DEFAULT)"
+ifneq ("$(PANEL_TUNING_EXTRA)","")
+FSBL_TARGETS += $(patsubst %,$(BUILDDIR)/fsbl-%.package-stamp,$(PANEL_TUNING_EXTRA))
+endif
+endif
+
+MIDDLEWARE_ENV = $(OSDRV_ENV) $(SENSOR_ENV)
+
+BSPDEPENDS = cvitek-middleware-$(BOARD)\
  cvitek-osdrv-$(BOARD)-$(VARIANT)\
  linux-headers-$(BOARD)-$(VARIANT)\
  linux-image-$(BOARD)-$(VARIANT)
+BSPRECOMMENDS = cvitek-fsbl-$(BOARD_EXT)
 BSPFILTER =
 
 include $(wildcard /builder/addons/*/addon.mk)
@@ -175,12 +199,14 @@ SPACE := $(EMPTY) $(EMPTY)
 
 BSPDEPENDS += $(patsubst "%,%-$(BOARD),$(patsubst %",%,$(filter-out $(BSPFILTER),$(IMAGE_ADDITIONS))))
 _BSPDEPENDS = $(subst $(SPACE),$(COMMA)$(SPACE),$(sort $(BSPDEPENDS)))
+_BSPRECOMMENDS = $(subst $(SPACE),$(COMMA)$(SPACE),$(sort $(BSPRECOMMENDS)))
 
 $(info $(blue)Board: $(BOARD_CFG)$(reset))
 $(info $(blue)Variant: $(VARIANT)$(reset))
 $(info $(blue)Storage: $(STORAGE_TYPE)$(reset))
 $(info $(blue)Target: $(SDK_VER)$(reset))
 $(info $(blue)ION Size: $(ION_SIZE)M$(reset))
+$(info $(blue)Default Panel: $(PANEL_TUNING_DEFAULT)$(reset))
 $(info $(blue)Image Addons: $(IMAGE_ADDITIONS)$(reset))
 $(info $(blue)Packages: $(_PACKAGES)$(reset))
 
@@ -222,7 +248,7 @@ $(BUILDDIR)/linux-prepare-checkout-stamp:
 	@echo "$(COLOUR_GREEN)Checking out Kernel for $(BOARD)$(END_COLOUR)"
 	@mkdir -p $(BUILDDIR)
 	@git clone -b licheervnano-merged-5.10.y $(GIT_CLONE_OPTS) https://github.com/scpcom/linux.git $(BUILDDIR)/kernel
-	@cd $(BUILDDIR)/kernel && git checkout a18b098
+	@cd $(BUILDDIR)/kernel && git checkout e3b55a8
 	@touch $@
 
 $(BUILDDIR)/linux-prepare-patch-stamp: $(BUILDDIR)/toolchain-prepare-patch-stamp $(BUILDDIR)/linux-prepare-checkout-stamp $(BUILDDIR)/$(BOARD)-$(VARIANT)/cvi_board_memmap.h
@@ -292,7 +318,7 @@ $(BUILDDIR)/osdrv-prepare-checkout-stamp:
 	@echo "$(COLOUR_GREEN)Checking out OSdrv for $(BOARD)$(END_COLOUR)"
 	@mkdir -p $(BUILDDIR)
 	@git clone -b licheervnano-cvisdk $(GIT_CLONE_OPTS) https://github.com/scpcom/sophgo-osdrv.git $(BUILDDIR)/osdrv
-	@cd $(BUILDDIR)/osdrv && git checkout 790b11d
+	@cd $(BUILDDIR)/osdrv && git checkout 3c4d256
 	@touch $@
 
 $(BUILDDIR)/osdrv-prepare-patch-stamp: $(BUILDDIR)/toolchain-prepare-patch-stamp $(BUILDDIR)/osdrv-prepare-checkout-stamp $(BUILDDIR)/linux-compile-stamp
@@ -356,7 +382,7 @@ $(BUILDDIR)/middleware-prepare-checkout-stamp:
 	@echo "$(COLOUR_GREEN)Checking out Middleware for $(BOARD)$(END_COLOUR)"
 	@mkdir -p $(BUILDDIR)
 	@git clone -b maix_mmf-cvisdk $(GIT_CLONE_OPTS) --recursive https://github.com/scpcom/sophgo-middleware.git $(BUILDDIR)/middleware
-	@cd $(BUILDDIR)/middleware && git checkout deef5a2
+	@cd $(BUILDDIR)/middleware && git checkout df0d5c3
 	@touch $@
 
 $(BUILDDIR)/middleware-prepare-patch-stamp: $(BUILDDIR)/toolchain-prepare-patch-stamp $(BUILDDIR)/middleware-prepare-checkout-stamp $(BUILDDIR)/osdrv-compile-stamp
@@ -415,7 +441,7 @@ $(BUILDDIR)/buildroot-prepare-checkout-stamp:
 	@echo "$(COLOUR_GREEN)Checking out Buildroot for $(BOARD)$(END_COLOUR)"
 	@mkdir -p $(BUILDDIR)
 	@git clone -b nanokvm-2025.02 $(GIT_CLONE_OPTS) --recursive https://github.com/scpcom/buildroot.git $(BUILDDIR)/buildroot
-	@cd $(BR_DIR) && git checkout 91a2808
+	@cd $(BR_DIR) && git checkout 27239df
 	@mkdir -p $(BUILDDIR)/ramdisk/tools
 	@git clone -b main https://github.com/scpcom/cvi-pinmux $(BUILDDIR)/ramdisk/tools/cvi_pinmux
 	@touch $@
@@ -426,7 +452,7 @@ $(BUILDDIR)/buildroot-prepare-patch-stamp: $(BUILDDIR)/toolchain-prepare-patch-s
 	@$(foreach file, $(wildcard /configs/$(BOARD_CFG)/patches/buildroot/*.patch), cd $(BR_DIR) && git apply --ignore-whitespace $(file);)
 	@cp /configs/common/buildroot/$(ARCH)_defconfig $(BR_DIR)/configs/$(BR_DEFCONFIG)
 	@echo 'BR2_TOOLCHAIN_EXTERNAL_PATH="'$(SDK_CROSS_COMPILE_PATH)'"' >> $(BR_DIR)/configs/$(BR_DEFCONFIG)
-	@if [ "X$(findstring kvm,$(VARIANT))" = "X" ]; then \
+	@if [ "X$(findstring kvm,$(VARIANT))$(findstring maixapp,$(IMAGE_ADDITIONS))" = "X" ]; then \
 		sed -i /BR2_CCACHE/d $(BR_DIR)/configs/$(BR_DEFCONFIG) ; \
 		sed -i /BR2_PACKAGE_CA_CERTIFICATES/d $(BR_DIR)/configs/$(BR_DEFCONFIG) ; \
 		sed -i /BR2_PACKAGE_LIBOPENSSL/d $(BR_DIR)/configs/$(BR_DEFCONFIG) ; \
@@ -434,6 +460,19 @@ $(BUILDDIR)/buildroot-prepare-patch-stamp: $(BUILDDIR)/toolchain-prepare-patch-s
 		sed -i /BR2_PACKAGE_PYTHON/d $(BR_DIR)/configs/$(BR_DEFCONFIG) ; \
 		sed -i /BR2_PACKAGE_HOST_PYTHON/d $(BR_DIR)/configs/$(BR_DEFCONFIG) ; \
 		sed -i /BR2_PACKAGE_MAIX_CDK/d $(BR_DIR)/configs/$(BR_DEFCONFIG) ; \
+	fi
+	@if [ "X$(findstring maixapp,$(IMAGE_ADDITIONS))" = "X" ]; then \
+		sed -i /BR2_PACKAGE_MPG123/d $(BR_DIR)/configs/$(BR_DEFCONFIG) ; \
+		sed -i /BR2_PACKAGE_LIBWEBSOCKETS/d $(BR_DIR)/configs/$(BR_DEFCONFIG) ; \
+		sed -i /BR2_PACKAGE_NANOMSG/d $(BR_DIR)/configs/$(BR_DEFCONFIG) ; \
+		sed -i /BR2_PACKAGE_WATCHDOG/d $(BR_DIR)/configs/$(BR_DEFCONFIG) ; \
+		sed -i /BR2_PACKAGE_OPENCV4/d $(BR_DIR)/configs/$(BR_DEFCONFIG) ; \
+		sed -i /BR2_PACKAGE_FFMPEG/d $(BR_DIR)/configs/$(BR_DEFCONFIG) ; \
+	else \
+		sed -i /BR2_PACKAGE_MAIX_CDK_ALL_DEPENDENCIES/d $(BR_DIR)/configs/$(BR_DEFCONFIG) ; \
+		sed -i /BR2_PACKAGE_MAIX_CDK_ALL_PROJECTS/d $(BR_DIR)/configs/$(BR_DEFCONFIG) ; \
+	fi
+	@if [ "X$(findstring kvm,$(VARIANT))" = "X" ]; then \
 		sed -i /BR2_PACKAGE_NANOKVM/d $(BR_DIR)/configs/$(BR_DEFCONFIG) ; \
 	fi
 	@if [ "$(BOARD)" = "duos" ]; then \
@@ -470,14 +509,13 @@ $(BUILDDIR)/uboot-prepare-checkout-stamp:
 	@echo "$(COLOUR_GREEN)Checking out U-Boot for $(BOARD)$(END_COLOUR)"
 	@mkdir -p $(BUILDDIR)
 	@git clone -b licheervnano-cvisdk-2021.10 $(GIT_CLONE_OPTS) https://github.com/scpcom/u-boot $(BUILDDIR)/u-boot
-	@cd $(BUILDDIR)/u-boot && git checkout d7d3fbc
+	@cd $(BUILDDIR)/u-boot && git checkout 564b1c8
 	@touch $@
 
 $(BUILDDIR)/uboot-prepare-patch-stamp: $(BUILDDIR)/toolchain-prepare-patch-stamp $(BUILDDIR)/uboot-prepare-checkout-stamp $(BUILDDIR)/$(BOARD)-$(VARIANT)/cvi_board_memmap.h
 	@echo "$(COLOUR_GREEN)Patching U-Boot for $(BOARD)$(END_COLOUR)"
 	@$(foreach file, $(wildcard /configs/common/patches/u-boot/*.patch), cd $(BUILDDIR)/u-boot && git apply --ignore-whitespace $(file);)
 	@$(foreach file, $(wildcard /configs/$(BOARD_CFG)/patches/u-boot/*.patch), cd $(BUILDDIR)/u-boot && git apply --ignore-whitespace $(file);)
-	@cp /configs/$(BOARD_CFG)/u-boot/defconfig $(BUILDDIR)/u-boot/configs/$(BOARD)_defconfig
 	@$(foreach file, $(wildcard /configs/common/dts/$(CHIP)/*), cp $(file) $(BUILDDIR)/u-boot/arch/$(UBOOT_ARCH)/dts/;)
 	@$(foreach file, $(wildcard /configs/common/dts/$(CHIP)_$(UBOOT_ARCH)/*), cp $(file) $(BUILDDIR)/u-boot/arch/$(UBOOT_ARCH)/dts/;)
 	@$(foreach file, $(wildcard /configs/$(BOARD_CFG)/dts/*), cp $(file) $(BUILDDIR)/u-boot/arch/$(UBOOT_ARCH)/dts/;)
@@ -488,19 +526,48 @@ $(BUILDDIR)/uboot-prepare-patch-stamp: $(BUILDDIR)/toolchain-prepare-patch-stamp
 	@python3 /builder/python/mk_imgHeader.py /configs/$(BOARD_CFG)/$(PARTITION_FILE) $(BUILDDIR)/u-boot/include/ 
 	@touch $@
 
-$(BUILDDIR)/uboot-prepare-configure-stamp: $(BUILDDIR)/uboot-prepare-patch-stamp
-	@echo "$(COLOUR_GREEN)Configuring U-Boot for $(BOARD)$(END_COLOUR)"
-	cd $(BUILDDIR)/u-boot/ && $(MAKE) -j$(NPROCS) $(UBOOT_MAKE_OPTS) $(BOARD)_defconfig
+define uboot_configure_action
+	@echo "$(COLOUR_GREEN)Configuring U-Boot for $(BOARD) ${1}$(END_COLOUR)"
+	cd $(BUILDDIR)/u-boot/ && $(MAKE) -j$(NPROCS) ${1} $(UBOOT_MAKE_OPTS) clean
+	@cp /configs/$(BOARD_CFG)/u-boot/defconfig $(BUILDDIR)/u-boot/configs/$(BOARD)${2}_defconfig
+	@if [ "X${2}" = "X" ] ; then \
+		sed -i /^CONFIG_CMD_CVI_VO/d $(BUILDDIR)/u-boot/configs/$(BOARD)${2}_defconfig ; \
+		sed -i /^CONFIG_DM_VIDEO/d $(BUILDDIR)/u-boot/configs/$(BOARD)${2}_defconfig ; \
+		sed -i /^CONFIG_CMD_VIDCONSOLE/d $(BUILDDIR)/u-boot/configs/$(BOARD)${2}_defconfig ; \
+		sed -i /^CONFIG_VIDEO/d $(BUILDDIR)/u-boot/configs/$(BOARD)${2}_defconfig ; \
+		sed -i /^CONFIG_DISPLAY_CVITEK_MIPI/d $(BUILDDIR)/u-boot/configs/$(BOARD)${2}_defconfig ; \
+		sed -i /^CONFIG_DISPLAY=/d $(BUILDDIR)/u-boot/configs/$(BOARD)${2}_defconfig ; \
+		sed -i /^CONFIG_BMP_/d $(BUILDDIR)/u-boot/configs/$(BOARD)${2}_defconfig ; \
+		sed -i /^CONFIG_BOOTLOGO/d $(BUILDDIR)/u-boot/configs/$(BOARD)${2}_defconfig ; \
+	fi
+	cd $(BUILDDIR)/u-boot/ && $(MAKE) -j$(NPROCS) ${1} $(UBOOT_MAKE_OPTS) $(BOARD)${2}_defconfig
 	@touch $@
+endef
 
-$(BUILDDIR)/uboot-compile-stamp: $(BUILDDIR)/uboot-prepare-configure-stamp
-	@echo "$(COLOUR_GREEN)Building U-Boot for $(BOARD)$(END_COLOUR)"
-	cd $(BUILDDIR)/u-boot/ && $(MAKE) -j$(NPROCS) $(UBOOT_MAKE_OPTS)
-	cd $(BUILDDIR)/u-boot/ && $(MAKE) -j$(NPROCS) $(UBOOT_MAKE_OPTS) u-boot-initial-env
+define uboot_compile_action
+	@echo "$(COLOUR_GREEN)Building U-Boot for $(BOARD) ${1}$(END_COLOUR)"
+	cd $(BUILDDIR)/u-boot/ && $(MAKE) -j$(NPROCS) ${1} $(UBOOT_MAKE_OPTS)
+	cd $(BUILDDIR)/u-boot/ && $(MAKE) -j$(NPROCS) ${1} $(UBOOT_MAKE_OPTS) u-boot-initial-env
 	@cp $(BUILDDIR)/u-boot/u-boot.bin $(BUILDDIR)
 	@cp $(BUILDDIR)/u-boot/u-boot.dtb $(BUILDDIR)
 	@cp $(BUILDDIR)/u-boot/u-boot-initial-env $(BUILDDIR)
 	@touch $@
+endef
+
+$(BUILDDIR)/uboot-%.prepare-configure-stamp: $(BUILDDIR)/uboot-prepare-patch-stamp
+	$(eval PANEL_TUNING_FSBL=$(patsubst uboot-%.prepare-configure-stamp,%,$(notdir $@)))
+	$(eval PANEL_PACKAGE_FSBL=$(shell echo '$(PANEL_TUNING_FSBL)' | tr '[:upper:]_' '[:lower:]-' | sed s/'^mipi-panel-'/'-'/g))
+	$(call uboot_configure_action,PANEL_TUNING_PARAM="$(PANEL_TUNING_FSBL)",$(PANEL_PACKAGE_FSBL))
+
+$(BUILDDIR)/uboot-%.compile-stamp: $(BUILDDIR)/uboot-%.prepare-configure-stamp
+	$(eval PANEL_TUNING_FSBL=$(patsubst uboot-%.compile-stamp,%,$(notdir $@)))
+	$(call uboot_compile_action,PANEL_TUNING_PARAM="$(PANEL_TUNING_FSBL)")
+
+$(BUILDDIR)/uboot-prepare-configure-stamp: $(BUILDDIR)/uboot-prepare-patch-stamp
+	$(call uboot_configure_action,,)
+
+$(BUILDDIR)/uboot-compile-stamp: $(BUILDDIR)/uboot-prepare-configure-stamp
+	$(call uboot_compile_action,)
 
 uboot: $(BUILDDIR)/uboot-compile-stamp
 
@@ -559,37 +626,60 @@ $(BUILDDIR)/fsbl-prepare-patch-stamp: $(BUILDDIR)/toolchain-prepare-patch-stamp 
 	@printf '\163\000\120\020\157\360\337\377' > $(BUILDDIR)/fsbl/blank.bin
 	@touch $@
 
-$(BUILDDIR)/fsbl-compile-stamp: $(BUILDDIR)/fsbl-prepare-patch-stamp $(BUILDDIR)/$(UBOOT_ARCH)-sbi-compile-stamp $(BUILDDIR)/uboot-compile-stamp
-	@echo "$(COLOUR_GREEN)Building FSBL for $(BOARD)$(END_COLOUR)"
-	@cd $(BUILDDIR)/fsbl && OD_CLK_SEL=y $(MAKE) -j$(NPROCS) $(KERNEL_MAKE_OPTS) CHIP_ARCH=$(CHIP) BOOT_CPU=$(BOOT_CPU) DDR_CFG=$(DDR_CFG) RTOS_ENABLE_FREERTOS=y BLCP_2ND_PATH=$(BUILDDIR)/fsbl/blank.bin LOADER_2ND_PATH=$(BUILDDIR)/u-boot.bin
+define fsbl_compile_action
+	@echo "$(COLOUR_GREEN)Building FSBL for $(BOARD) ${1}$(END_COLOUR)"
+	@cd $(BUILDDIR)/fsbl && OD_CLK_SEL=y $(MAKE) -j$(NPROCS) ${1} $(FSBL_MAKE_OPTS) clean
+	@cd $(BUILDDIR)/fsbl && OD_CLK_SEL=y $(MAKE) -j$(NPROCS) ${1} $(FSBL_MAKE_OPTS)
 	@cp $(BUILDDIR)/fsbl/build/$(CHIP)/fip.bin $(BUILDDIR)
 	@touch $@
+endef
+
+define fsbl_package_action
+	@echo "$(COLOUR_GREEN)Packaging FSBL for $(BOARD) ${1}$(END_COLOUR)"
+	@$(eval UV=$(shell cd $(BUILDDIR)/u-boot && git log -1 --format="%at" | xargs -I{} date -d @{} +-%Y%m%d-${KERNELREV}))
+	@$(eval FSBL_PACKAGE_NAME=$(shell echo "cvitek-fsbl-$(BOARD_EXT)${2}"))
+	@$(eval FSBL_PACKAGE_DIR=$(shell echo "$(BUILDDIR)/package/$(FSBL_PACKAGE_NAME)-$(FSBLVERSION)"))
+	@$(eval PANEL_NAME_FSBL=$(shell echo '${2}' | cut -d '-' -f 2- | tr '-' '_'))
+	@mkdir -p $(FSBL_PACKAGE_DIR)
+	@cp -r /builder/deb/cvitek-fsbl/* $(FSBL_PACKAGE_DIR)/
+	@mkdir -p $(FSBL_PACKAGE_DIR)/usr/lib/cvitek-fsbl/$(BOARD_EXT)${2}/
+	@cp $(BUILDDIR)/fip.bin $(FSBL_PACKAGE_DIR)/usr/lib/cvitek-fsbl/$(BOARD_EXT)${2}/
+	@cp $(BUILDDIR)/u-boot-initial-env $(FSBL_PACKAGE_DIR)/usr/lib/cvitek-fsbl/$(BOARD_EXT)${2}/
+	@[ ! -e /configs/$(BOARD_CFG)/logo.jpeg ] || cp /configs/$(BOARD_CFG)/logo.jpeg $(FSBL_PACKAGE_DIR)/usr/lib/cvitek-fsbl/$(BOARD_EXT)${2}/
+	@sed -i 's|cvitek-fsbl/licheervnano|cvitek-fsbl/$(BOARD_EXT)${2}|g' $(FSBL_PACKAGE_DIR)/DEBIAN/postinst
+	@[ "X$(PANEL_NAME_FSBL)" = "X" ] || sed -i s/'^panel='/'panel='$(PANEL_NAME_FSBL)/g $(FSBL_PACKAGE_DIR)/DEBIAN/postinst
+	@chmod ugo+rx $(FSBL_PACKAGE_DIR)/DEBIAN/postinst
+	@sed -i 's/Architecture: riscv64/Architecture: $(DEB_ARCH)/' $(FSBL_PACKAGE_DIR)/DEBIAN/control
+	@sed -i 's/Version: 1.1.0/Version: $(FSBLVERSION)$(UV)/' $(FSBL_PACKAGE_DIR)/DEBIAN/control
+	@sed -i 's/Package: cvitek-fsbl/Package: $(FSBL_PACKAGE_NAME)/' $(FSBL_PACKAGE_DIR)/DEBIAN/control
+	@if [ "$(BOARD)" = "$(BOARD_EXT)" ]; then \
+		sed -i '/Provides: .*/d' $(FSBL_PACKAGE_DIR)/DEBIAN/control && \
+		sed -i '/Replaces: .*/d' $(FSBL_PACKAGE_DIR)/DEBIAN/control ; \
+	else \
+		sed -i 's/Provides: .*/Provides: cvitek-fsbl-$(BOARD)/' $(FSBL_PACKAGE_DIR)/DEBIAN/control && \
+		sed -i 's/Replaces: .*/Replaces: cvitek-fsbl-$(BOARD)/' $(FSBL_PACKAGE_DIR)/DEBIAN/control ; \
+	fi
+	@cd $(BUILDDIR)/package/ && dpkg-deb --build $(FSBL_PACKAGE_NAME)-$(FSBLVERSION) $(FSBL_PACKAGE_NAME)_$(FSBLVERSION)$(UV)_$(DEB_ARCH).deb
+	@cp $(BUILDDIR)/package/$(FSBL_PACKAGE_NAME)_$(FSBLVERSION)$(UV)_$(DEB_ARCH).deb /output/
+	@touch $@
+endef
+
+$(BUILDDIR)/fsbl-%.compile-stamp: $(BUILDDIR)/fsbl-prepare-patch-stamp $(BUILDDIR)/$(UBOOT_ARCH)-sbi-compile-stamp $(BUILDDIR)/uboot-%.compile-stamp
+	$(eval PANEL_TUNING_FSBL=$(patsubst fsbl-%.compile-stamp,%,$(notdir $@)))
+	$(call fsbl_compile_action,PANEL_TUNING_PARAM="$(PANEL_TUNING_FSBL)")
+
+$(BUILDDIR)/fsbl-%.package-stamp: $(BUILDDIR)/fsbl-%.compile-stamp
+	$(eval PANEL_TUNING_FSBL=$(patsubst fsbl-%.package-stamp,%,$(notdir $@)))
+	$(eval PANEL_PACKAGE_FSBL=$(shell echo '$(PANEL_TUNING_FSBL)' | tr '[:upper:]_' '[:lower:]-' | sed s/'^mipi-panel-'/'-'/g))
+	$(call fsbl_package_action,PANEL_TUNING_PARAM="$(PANEL_TUNING_FSBL)",$(PANEL_PACKAGE_FSBL))
+
+$(BUILDDIR)/fsbl-compile-stamp: $(BUILDDIR)/fsbl-prepare-patch-stamp $(BUILDDIR)/$(UBOOT_ARCH)-sbi-compile-stamp $(BUILDDIR)/uboot-compile-stamp
+	$(call fsbl_compile_action,)
 
 $(BUILDDIR)/fsbl-package-stamp: $(BUILDDIR)/fsbl-compile-stamp
-	@echo "$(COLOUR_GREEN)Packaging FSBL for $(BOARD)$(END_COLOUR)"
-	@$(eval UV=$(shell cd $(BUILDDIR)/u-boot && git log -1 --format="%at" | xargs -I{} date -d @{} +-%Y%m%d-${KERNELREV}))
-	@mkdir -p $(BUILDDIR)/package/cvitek-fsbl-$(BOARD_EXT)-$(FSBLVERSION)
-	@cp -r /builder/deb/cvitek-fsbl/* $(BUILDDIR)/package/cvitek-fsbl-$(BOARD_EXT)-$(FSBLVERSION)/
-	@mkdir -p $(BUILDDIR)/package/cvitek-fsbl-$(BOARD_EXT)-$(FSBLVERSION)/usr/lib/cvitek-fsbl/$(BOARD_EXT)/
-	@cp $(BUILDDIR)/fip.bin $(BUILDDIR)/package/cvitek-fsbl-$(BOARD_EXT)-$(FSBLVERSION)/usr/lib/cvitek-fsbl/$(BOARD_EXT)/
-	@cp $(BUILDDIR)/u-boot-initial-env $(BUILDDIR)/package/cvitek-fsbl-$(BOARD_EXT)-$(FSBLVERSION)/usr/lib/cvitek-fsbl/$(BOARD_EXT)/
-	@sed -i 's|cvitek-fsbl/licheervnano|cvitek-fsbl/$(BOARD_EXT)|' $(BUILDDIR)/package/cvitek-fsbl-$(BOARD_EXT)-$(FSBLVERSION)/DEBIAN/postinst
-	@chmod ugo+rx $(BUILDDIR)/package/cvitek-fsbl-$(BOARD_EXT)-$(FSBLVERSION)/DEBIAN/postinst
-	@sed -i 's/Architecture: riscv64/Architecture: $(DEB_ARCH)/' $(BUILDDIR)/package/cvitek-fsbl-$(BOARD_EXT)-$(FSBLVERSION)/DEBIAN/control
-	@sed -i 's/Version: 1.1.0/Version: $(FSBLVERSION)$(UV)/' $(BUILDDIR)/package/cvitek-fsbl-$(BOARD_EXT)-$(FSBLVERSION)/DEBIAN/control
-	@sed -i 's/Package: cvitek-fsbl/Package: cvitek-fsbl-$(BOARD_EXT)/' $(BUILDDIR)/package/cvitek-fsbl-$(BOARD_EXT)-$(FSBLVERSION)/DEBIAN/control
-	@if [ "$(BOARD)" = "$(BOARD_EXT)" ]; then \
-		sed -i '/Provides: .*/d' $(BUILDDIR)/package/cvitek-fsbl-$(BOARD_EXT)-$(FSBLVERSION)/DEBIAN/control && \
-		sed -i '/Replaces: .*/d' $(BUILDDIR)/package/cvitek-fsbl-$(BOARD_EXT)-$(FSBLVERSION)/DEBIAN/control ; \
-	else \
-		sed -i 's/Provides: .*/Provides: cvitek-fsbl-$(BOARD)/' $(BUILDDIR)/package/cvitek-fsbl-$(BOARD_EXT)-$(FSBLVERSION)/DEBIAN/control && \
-		sed -i 's/Replaces: .*/Replaces: cvitek-fsbl-$(BOARD)/' $(BUILDDIR)/package/cvitek-fsbl-$(BOARD_EXT)-$(FSBLVERSION)/DEBIAN/control ; \
-	fi
-	@cd $(BUILDDIR)/package/ && dpkg-deb --build cvitek-fsbl-$(BOARD_EXT)-$(FSBLVERSION) cvitek-fsbl-$(BOARD_EXT)_$(FSBLVERSION)$(UV)_$(DEB_ARCH).deb
-	@cp $(BUILDDIR)/package/cvitek-fsbl-$(BOARD_EXT)_$(FSBLVERSION)$(UV)_$(DEB_ARCH).deb /output/
-	@touch $@
+	$(call fsbl_package_action,,)
 
-fsbl: $(BUILDDIR)/fsbl-package-stamp
+fsbl: $(FSBL_TARGETS)
 
 fsbl-clean:
 	@rm -rf $(BUILDDIR)/fsbl
@@ -607,7 +697,7 @@ $(BUILDDIR)/image-prepare-stamp:
 	@mmdebstrap -v --architectures=$(DEB_ARCH) --include="$(_PACKAGES)" trixie "/rootfs/" "deb http://deb.debian.org/debian/ trixie main" "deb [signed-by=$(BUILDDIR)/public-key.asc] https://scpcom.github.io/deb stable sg200x $(BOARD)-$(VARIANT)"
 	@touch $@
 
-$(BUILDDIR)/image-addons-stamp: $(BUILDDIR)/image-prepare-stamp $(BUILDDIR)/fsbl-package-stamp $(BUILDDIR)/linux-package-stamp $(BUILDDIR)/osdrv-package-stamp $(BUILDDIR)/middleware-package-stamp $(addon-targets)
+$(BUILDDIR)/image-addons-stamp: $(BUILDDIR)/image-prepare-stamp $(FSBL_TARGETS) $(BUILDDIR)/linux-package-stamp $(BUILDDIR)/osdrv-package-stamp $(BUILDDIR)/middleware-package-stamp $(addon-targets)
 	@echo "$(COLOUR_GREEN)Packaging board-support-sg200x for $(BOARD)$(END_COLOUR)"
 	@$(eval KERNEL_DEB_ARCH=$(shell grep -m1 '^Architecture: ' $(BUILDDIR)/kernel/debian/control | cut -d ' ' -f 2))
 	@mkdir -p $(BUILDDIR)/package/board-support-$(BOARD)-$(VARIANT)-$(BSPVERSION)
@@ -621,7 +711,7 @@ $(BUILDDIR)/image-addons-stamp: $(BUILDDIR)/image-prepare-stamp $(BUILDDIR)/fsbl
 	@sed -i 's|cvitek-osdrv-$(BOARD)-$(VARIANT)|cvitek-osdrv-$(BOARD)-$(VARIANT):$(KERNEL_DEB_ARCH)|g' $(BUILDDIR)/package/board-support-$(BOARD)-$(VARIANT)-$(BSPVERSION)/DEBIAN/control
 	@sed -i 's|linux-headers-$(BOARD)-$(VARIANT)|linux-headers-$(BOARD)-$(VARIANT):$(KERNEL_DEB_ARCH)|g' $(BUILDDIR)/package/board-support-$(BOARD)-$(VARIANT)-$(BSPVERSION)/DEBIAN/control
 	@sed -i 's|linux-image-$(BOARD)-$(VARIANT)|linux-image-$(BOARD)-$(VARIANT):$(KERNEL_DEB_ARCH)|g' $(BUILDDIR)/package/board-support-$(BOARD)-$(VARIANT)-$(BSPVERSION)/DEBIAN/control
-	@sed -i '/Recommends: .*/d' $(BUILDDIR)/package/board-support-$(BOARD)-$(VARIANT)-$(BSPVERSION)/DEBIAN/control
+	@sed -i 's/Recommends: .*/Recommends: $(_BSPRECOMMENDS)/' $(BUILDDIR)/package/board-support-$(BOARD)-$(VARIANT)-$(BSPVERSION)/DEBIAN/control
 	@if [ -f /rootfs/tmp/install/systemd-enable ]; then \
 		echo "systemctl enable `cat /rootfs/tmp/install/systemd-enable | tr -d '\n'`" >> $(BUILDDIR)/package/board-support-$(BOARD)-$(VARIANT)-$(BSPVERSION)/DEBIAN/postinst ; \
 	fi
@@ -640,7 +730,7 @@ $(BUILDDIR)/image-addons-stamp: $(BUILDDIR)/image-prepare-stamp $(BUILDDIR)/fsbl
 	@touch $@
 
 
-$(BUILDDIR)/image-customize-stamp: $(BUILDDIR)/image-addons-stamp $(BUILDDIR)/linux-package-stamp $(BUILDDIR)/fsbl-package-stamp
+$(BUILDDIR)/image-customize-stamp: $(BUILDDIR)/image-addons-stamp $(BUILDDIR)/linux-package-stamp $(FSBL_TARGETS)
 	@echo "$(COLOUR_GREEN)Customizing Image for $(BOARD)$(END_COLOUR)"
 	@$(eval KERNEL_DEB_ARCH=$(shell grep -m1 '^Architecture: ' $(BUILDDIR)/kernel/debian/control | cut -d ' ' -f 2))
 	@mkdir -p /rootfs/tmp/install/
