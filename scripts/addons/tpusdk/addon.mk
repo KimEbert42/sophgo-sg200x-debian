@@ -100,6 +100,7 @@ $(BUILDDIR)/tpusdk-prepare-patch-stamp: $(BUILDDIR)/toolchain-prepare-patch-stam
 	@cd $(BUILDDIR)/tpusdk && sed -i 's|$$ENV{TOP_DIR}/ramdisk/sysroot/sysroot-glibc-linaro-2.23-2017.05-arm-linux-gnueabihf|/rootfs|g' cviruntime/scripts/toolchain.cmake
 	@cd $(BUILDDIR)/tpusdk && sed -i 's|$$ENV{TOP_DIR}/ramdisk/sysroot/sysroot-glibc-linaro-2.23-2017.05-aarch64-linux-gnu|/rootfs|g' cviruntime/scripts/toolchain.cmake
 	@cd $(BUILDDIR)/tpusdk && sed -i 's|$$ENV{TOP_DIR}/host-tools/gcc/riscv64-linux-x86_64/sysroot|/rootfs|g' cviruntime/scripts/toolchain.cmake
+	@cd $(BUILDDIR)/tpusdk && sed -i s/'-Wno-unused-parameter"'/'-Wno-unused-parameter -Wno-maybe-uninitialized"'/g cviruntime/CMakeLists.txt
 	@touch $@
 
 $(BUILDDIR)/tpusdk-prepare-configure-stamp: $(BUILDDIR)/tpusdk-prepare-patch-stamp
